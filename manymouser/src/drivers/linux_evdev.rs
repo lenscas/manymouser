@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     convert::{TryFrom, TryInto},
     ffi::{CStr, OsStr},
     fs::File,
@@ -21,6 +22,8 @@ use nix::{
     libc::{c_int, closedir, open, DIR, O_NONBLOCK, O_RDONLY, S_IFCHR},
     sys::stat::stat,
 };
+
+use super::Driver;
 const E_AGAIN: i32 = 11;
 
 const MAX_MICE: usize = 32;
@@ -31,8 +34,8 @@ pub enum ManyMouseEventType {
     Relmotion = 1,
     Button = 2,
     Scroll = 3,
-    Disconnect = 4,
-    Max = 5,
+    _Disconnect = 4,
+    _Max = 5,
 }
 
 #[derive(Debug)]
@@ -344,11 +347,11 @@ impl DriverContainer {
         self.available_mice as i32
     }
 
-    pub(crate) fn linux_evdev_name(&self, index: usize) -> Option<&[u8; 64]> {
+    pub(crate) fn linux_evdev_name(&self, index: usize) -> Option<&CStr> {
         self.mice
             .get(index)
             .and_then(|v| v.as_ref())
-            .map(|v| &v.name)
+            .map(|v| unsafe { CStr::from_bytes_with_nul_unchecked(&v.name) })
     }
     pub(crate) fn linux_evdev_poll(&mut self) -> Option<ManyMouseEvent> {
         /*
@@ -390,5 +393,65 @@ impl DriverContainer {
         };
         new_self.linux_evdev_init();
         new_self
+    }
+}
+
+impl Driver for DriverContainer {
+    fn poll(&mut self) -> Option<super::Event> {
+        self.linux_evdev_poll().map(|v| super::Event {
+            device_id: v.device,
+            event: match v.event_type {
+                ManyMouseEventType::Absmotion => super::ManyMouseEvent::AbsoluteMotion {
+                    moved: if v.item == 0 {
+                        super::AbsoluteMotionMoved::X(v.value)
+                    } else {
+                        super::AbsoluteMotionMoved::Y(v.value)
+                    },
+                    max: v.maxval.unwrap(),
+                    min: v.minval.unwrap(),
+                },
+                ManyMouseEventType::Relmotion => super::ManyMouseEvent::RelativeMotion {
+                    x: if v.item == 0 { v.value } else { 0 },
+                    y: if v.item == 0 { 0 } else { v.value },
+                },
+                ManyMouseEventType::Button => {
+                    println!("{:?}", v);
+                    super::ManyMouseEvent::Button {
+                        side: if v.item == 1 {
+                            super::Button::Left
+                        } else {
+                            super::Button::Right
+                        },
+                        is_pressed: v.value == 1,
+                    }
+                }
+                ManyMouseEventType::Scroll => super::ManyMouseEvent::Scroll {
+                    value: v.value,
+                    min: v.minval.unwrap(),
+                    max: v.maxval.unwrap(),
+                },
+                ManyMouseEventType::_Disconnect => super::ManyMouseEvent::Disconnect,
+                ManyMouseEventType::_Max => super::ManyMouseEvent::Max {},
+            },
+        })
+    }
+
+    fn driver_name(&self) -> Cow<'static, str> {
+        Cow::Borrowed("Linux evdev rust")
+    }
+
+    fn device_name(&self, id: usize) -> Option<&CStr> {
+        self.linux_evdev_name(id)
+    }
+
+    fn get_all_mouse_names(&self) -> Box<dyn Iterator<Item = &CStr> + '_> {
+        Box::new(
+            self.get_all_mice()
+                .map(|v| unsafe { CStr::from_bytes_with_nul_unchecked(&v.name) }),
+        )
+    }
+
+    fn get_all_ids(&self) -> Box<dyn Iterator<Item = usize> + '_> {
+        Box::new(self.get_all_ids())
     }
 }

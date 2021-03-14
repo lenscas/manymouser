@@ -1,12 +1,15 @@
 ## Manymouser
-A rust version of https://icculus.org/manymouse/.
-The code so far is an almost line to line translation of https://github.com/NoobsArePeople2/manymouse
+A rust version/wrapper of https://icculus.org/manymouse/.
 
-Currently, only the evdev backend is ported. Plan is to support windows and X11 input as well. Also, ideally I have the manymouse library itself be able to act as a backend but no idea how to do that yet.
+Right now, manymouse is always statically linked and used as a backend. The plan is to rewrite most if not all of it to Rust as time goes on.
+However, I have no plans of removing `manymouse` as a possible backend. 
+
+At this point in time, Linux_evdev got an early port to rust. It however still uses A LOT of unsafe code as I tried to keep it close to the original C code for testing.
+
+The other platforms are handled by `manymouse`.
 
 ## TODO
 1. Demo
 2. Windows support
 3. X11 input
-4. Manymouse itself as a backend?
-5. Expose it to more languages like Lua (mlua) and C#.
+4. Expose it to more languages like Lua (mlua?) and C#.
